@@ -1,0 +1,6 @@
+pymupdf
+opencv-python-headless
+numpy
+pytesseract
+Pillow
+boto3

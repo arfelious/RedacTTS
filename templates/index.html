@@ -1,0 +1,678 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>RedacTTS</title>
+    <link rel="icon" href="/static/favicon.ico">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-color: #ffffff;
+            --text-color: #000000;
+            --accent-color: #000000;
+            --border-color: #e0e0e0;
+            --card-bg: #ffffff;
+            --hover-bg: #f5f5f5;
+        }
+
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #fcfcfc;
+            color: var(--text-color);
+            margin: 0;
+            padding: 40px 20px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            min-height: 100vh;
+            padding-top: 120px;
+            /* Space for fixed header */
+        }
+
+        /* Header / Logo Area */
+        .brand-header {
+            width: 100%;
+            background-color: #000000;
+            color: #ffffff;
+            padding: 20px 40px;
+            box-sizing: border-box;
+            display: flex;
+            align-items: center;
+            justify-content: flex-start;
+            margin-bottom: 40px;
+            position: fixed;
+            /* Optional: make it sticky? User didn't ask, but good for "Top Left" */
+            top: 0;
+            left: 0;
+            z-index: 100;
+        }
+
+        .header-content {
+            display: flex;
+            align-items: center;
+            max-width: 1200px;
+            width: 100%;
+            margin: 0 auto;
+        }
+
+        .logo {
+            width: 220px;
+            height: auto;
+            margin-bottom: 0;
+            margin-right: 0;
+            object-fit: contain;
+            filter: invert(1);
+            /* Invert logo if it's black to show on black header, or assume it works */
+        }
+
+        h1 {
+            font-weight: 600;
+            font-size: 1.8rem;
+            margin: 0;
+            letter-spacing: -0.5px;
+            color: white;
+        }
+
+        .subtitle {
+            margin-top: 5px;
+            color: #ccc;
+            font-weight: 300;
+            font-size: 0.9rem;
+            margin-left: 20px;
+            border-left: 1px solid #444;
+            padding-left: 20px;
+        }
+
+        /* Main Container */
+        .main-container {
+            width: 100%;
+            max-width: 800px;
+            background: var(--card-bg);
+            /* Minimalist border instead of shadow for B&W theme */
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            padding: 40px;
+            box-sizing: border-box;
+            margin-top: 25vh;
+        }
+
+        /* Sections */
+        .step-section {
+            margin-bottom: 40px;
+            animation: fadeIn 0.5s ease-in-out;
+        }
+
+        .step-section:last-child {
+            margin-bottom: 0;
+        }
+
+        h2 {
+            font-size: 1.2rem;
+            font-weight: 600;
+            margin-top: 0;
+            margin-bottom: 20px;
+            padding-bottom: 10px;
+            border-bottom: 2px solid var(--text-color);
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        /* Inputs & Buttons */
+        .upload-area {
+            border: 2px dashed var(--border-color);
+            padding: 40px;
+            text-align: center;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .upload-area:hover {
+            border-color: var(--text-color);
+            background-color: var(--hover-bg);
+        }
+
+        input[type="file"] {
+            display: none;
+        }
+
+        .btn {
+            background-color: var(--text-color);
+            color: var(--bg-color);
+            border: none;
+            padding: 12px 24px;
+            font-size: 1rem;
+            font-weight: 500;
+            border-radius: 6px;
+            cursor: pointer;
+            transition: opacity 0.2s;
+        }
+
+        .btn:hover {
+            opacity: 0.8;
+        }
+
+        .btn-outline {
+            background-color: transparent;
+            border: 1px solid var(--text-color);
+            color: var(--text-color);
+        }
+
+        .btn-outline:hover {
+            background-color: var(--hover-bg);
+        }
+
+        .btn-full {
+            width: 100%;
+            margin-top: 20px;
+            padding: 16px;
+            font-size: 1.1rem;
+        }
+
+        /* Config Grid */
+        .config-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 20px;
+            margin-top: 20px;
+        }
+
+        .config-item {
+            display: flex;
+            flex-direction: column;
+        }
+
+        label {
+            font-size: 0.9rem;
+            margin-bottom: 8px;
+            font-weight: 500;
+            color: #444;
+        }
+
+        select,
+        input[type="number"] {
+            padding: 10px;
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            font-family: inherit;
+            font-size: 0.95rem;
+            background: white;
+            color: black;
+        }
+
+        select:focus,
+        input[type="number"]:focus {
+            outline: none;
+            border-color: black;
+        }
+
+
+        /* Preview Area */
+        .stats-bar {
+            background: var(--hover-bg);
+            padding: 10px 15px;
+            border-radius: 6px;
+            font-size: 0.9rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+
+        .preview-box {
+            max-height: 250px;
+            overflow-y: auto;
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            padding: 0;
+            font-size: 0.9rem;
+            background: #fafafa;
+        }
+
+        .qa-row {
+            padding: 15px;
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        .qa-row:last-child {
+            border-bottom: none;
+        }
+
+        .qa-label {
+            font-size: 0.75rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            margin-bottom: 4px;
+            display: inline-block;
+            padding: 2px 6px;
+            border-radius: 4px;
+        }
+
+        .label-q {
+            background: #000;
+            color: #fff;
+        }
+
+        .label-a {
+            background: #e0e0e0;
+            color: #000;
+        }
+
+        .label-e {
+            background: #fff;
+            border: 1px solid #000;
+            color: #000;
+        }
+
+        .qa-text {
+            line-height: 1.5;
+            margin-bottom: 8px;
+        }
+
+        /* Audio Player */
+        .audio-wrapper {
+            margin-top: 20px;
+            background: #000;
+            padding: 20px;
+            border-radius: 8px;
+            color: white;
+            text-align: center;
+        }
+
+        audio {
+            width: 100%;
+            height: 40px;
+            filter: invert(1);
+            /* Invert to make default controls look better on dark if needed, or keeping standard */
+        }
+
+        .download-link {
+            display: inline-block;
+            margin-top: 15px;
+            color: white;
+            text-decoration: underline;
+            font-size: 0.9rem;
+        }
+
+        /* Utilities */
+        .hidden {
+            display: none;
+        }
+
+        @keyframes fadeIn {
+            from {
+                opacity: 0;
+                transform: translateY(10px);
+            }
+
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        /* Spinner */
+        .overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(255, 255, 255, 0.9);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 1000;
+            display: none;
+        }
+
+        .spinner {
+            width: 40px;
+            height: 40px;
+            border: 3px solid #eee;
+            border-top: 3px solid #000;
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+        }
+
+        @keyframes spin {
+            0% {
+                transform: rotate(0deg);
+            }
+
+            100% {
+                transform: rotate(360deg);
+            }
+        }
+    </style>
+</head>
+
+<body>
+
+    <div class="overlay" id="loader">
+        <div class="spinner"></div>
+    </div>
+
+    <!-- Header Outside Container -->
+    <div class="brand-header">
+        <img src="/static/assets/logo.png" alt="RedacTTS Logo" class="logo"
+            onerror="this.src='https://placehold.co/120x60/000000/ffffff?text=Logo'">
+    </div>
+
+    <div class="main-container">
+
+        <!-- Instructions -->
+        <div style="text-align: center; margin-bottom: 30px;">
+            <div style="display: flex; justify-content: center; gap: 30px; font-size: 0.9rem; color: #666;">
+                <span>1. Upload PDF</span>
+                <span>→</span>
+                <span>2. Configure Options</span>
+                <span>→</span>
+                <span>3. Get Narrated Transcript</span>
+            </div>
+        </div>
+
+        <!-- Upload Section -->
+        <div class="step-section" id="section-upload">
+
+            <div class="upload-area" onclick="document.getElementById('pdf-upload').click()">
+                <div style="font-size: 2rem; margin-bottom: 10px;">📄</div>
+                <div style="font-weight: 600;">Upload PDF</div>
+                <div style="font-size: 0.8rem; color: #888; margin-top: 5px;">Supports .pdf documents</div>
+                <input type="file" id="pdf-upload" accept=".pdf" onchange="handleFileSelect(this)">
+            </div>
+            <div id="file-name" style="text-align: center; margin-top: 10px; font-weight: 500; display: none;"></div>
+            <button id="btn-upload-confirm" class="btn btn-full hidden"
+                style="background-color: #000; color: #fff; margin-top: 15px;" onclick="confirmUpload()">Upload
+                File</button>
+
+            <div id="preview-area" class="hidden" style="margin-top: 30px;">
+                <div class="stats-bar">
+                    <span><strong>Extracted Items:</strong> <span id="qa-count">0</span></span>
+                    <span style="font-size: 0.8rem; color: #666;">Previewing first 5 items</span>
+                </div>
+                <div class="preview-box" id="qa-list"></div>
+            </div>
+        </div>
+
+        <!-- Configuration Section -->
+        <div class="step-section hidden" id="section-config">
+            <h2>2. Voice Configuration</h2>
+
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+                <div class="config-item" style="flex: 1; margin-right: 20px;">
+                    <label>Voice Source</label>
+                    <select id="voice-source-toggle">
+                        <option value="Local">Local (System)</option>
+                        <option value="Cloud" selected>Cloud (Neural)</option>
+                    </select>
+                </div>
+                <button class="btn btn-outline" onclick="fetchVoices()" style="height: 42px; margin-top: 24px;">Refresh
+                    Voices</button>
+            </div>
+
+            <div class="config-grid">
+                <div class="config-item">
+                    <label>Question Voice (Q)</label>
+                    <select id="voice-q">
+                        <option disabled selected>Select Voice...</option>
+                    </select>
+                </div>
+                <div class="config-item">
+                    <label>Answer Voice (A)</label>
+                    <select id="voice-a">
+                        <option disabled selected>Select Voice...</option>
+                    </select>
+                </div>
+                <div class="config-item">
+                    <label>Extra Voice (Info)</label>
+                    <select id="voice-extra">
+                        <option disabled selected>Select Voice...</option>
+                    </select>
+                </div>
+            </div>
+
+            <div style="margin-top: 30px;">
+                <label>Limit Processing</label>
+                <div style="display: flex; gap: 10px; align-items: center;">
+                    <input type="number" id="qa-limit" value="30" min="1" style="width: 100px;">
+                    <span style="font-size: 0.9rem; color: #666;">Process first N Q/A pairs only</span>
+                </div>
+            </div>
+
+            <button class="btn btn-full" onclick="generateTTS()">Generate Audio</button>
+        </div>
+
+        <!-- Result Section -->
+        <div class="step-section hidden" id="section-result">
+            <h2>3. Audio Output</h2>
+            <div class="audio-wrapper">
+                <audio id="audio-player" controls></audio>
+                <br>
+                <a id="download-link" href="#" download="output.mp3" class="download-link">Download MP3 File</a>
+            </div>
+        </div>
+
+    </div>
+
+    <script>
+        let extractedQA = [];
+        let uploadedFilename = "";
+        let availableVoices = {};
+
+        let selectedFile = null; // Store file for re-upload if needed
+
+        function showLoader() { document.getElementById('loader').style.display = 'flex'; }
+        function hideLoader() { document.getElementById('loader').style.display = 'none'; }
+
+        function handleFileSelect(input) {
+            if (input.files && input.files[0]) {
+                selectFile(input.files[0]);
+            }
+        }
+
+        function selectFile(file) {
+            selectedFile = file;
+            document.getElementById('file-name').innerText = "Selected: " + file.name;
+            document.getElementById('file-name').style.display = 'block';
+            document.getElementById('btn-upload-confirm').classList.remove('hidden');
+ // Reset UI for new file
+            document.getElementById('preview-area').classList.add('hidden');
+            document.getElementById('section-config').classList.add('hidden');
+            document.getElementById('section-result').classList.add('hidden');
+        }
+
+        function confirmUpload() {
+            if (selectedFile) {
+                uploadPDF(selectedFile);
+            } else {
+                alert("No file selected.");
+            }
+        }
+
+        async function uploadPDF(file) {
+            const formData = new FormData();
+            formData.append('file', file);
+
+            showLoader();
+            try {
+                const res = await fetch('/upload', { method: 'POST', body: formData });
+                const data = await res.json();
+
+                if (data.error) throw new Error(data.error);
+
+                extractedQA = data.qa_pairs;
+                uploadedFilename = data.filename;
+                document.getElementById('qa-count').innerText = extractedQA.length;
+                renderPreview(extractedQA);
+
+                document.getElementById('preview-area').classList.remove('hidden');
+                document.getElementById('section-config').classList.remove('hidden');
+
+                fetchVoices();
+            } catch (e) {
+                alert("Upload Failed: " + e.message);
+            } finally {
+                hideLoader();
+            }
+        }
+
+        // Drag and Drop Logic
+        const dropZone = document.querySelector('.upload-area');
+
+        ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
+            dropZone.addEventListener(eventName, preventDefaults, false);
+        });
+
+        function preventDefaults(e) {
+            e.preventDefault();
+            e.stopPropagation();
+        }
+
+        ['dragenter', 'dragover'].forEach(eventName => {
+            dropZone.addEventListener(eventName, highlight, false);
+        });
+
+        ['dragleave', 'drop'].forEach(eventName => {
+            dropZone.addEventListener(eventName, unhighlight, false);
+        });
+
+        function highlight(e) {
+            dropZone.style.borderColor = '#000';
+            dropZone.style.backgroundColor = '#f0f0f0';
+        }
+
+        function unhighlight(e) {
+            dropZone.style.borderColor = '#e0e0e0';
+            dropZone.style.backgroundColor = 'transparent';
+        }
+
+        dropZone.addEventListener('drop', handleDrop, false);
+
+        function handleDrop(e) {
+            const dt = e.dataTransfer;
+            const files = dt.files;
+            if (files.length > 0) {
+                if (files[0].type === 'application/pdf') {
+                    selectFile(files[0]);
+                } else {
+                    alert("Please upload a PDF file.");
+                }
+            }
+        }
+
+        function renderPreview(data) {
+            const list = document.getElementById('qa-list');
+            list.innerHTML = '';
+            data.slice(0, 5).forEach(item => {
+                const row = document.createElement('div');
+                row.className = 'qa-row';
+
+                let html = '';
+
+                if (item.Question) {
+                    const txt = item.Question.text || item.Question;
+                    html += `<div><span class="qa-label label-q">Q</span> <span class="qa-text">${txt.substring(0, 150)}...</span></div>`;
+                }
+                if (item.Answer) {
+                    const txt = item.Answer.text || item.Answer;
+                    html += `<div style="margin-top:5px;"><span class="qa-label label-a">A</span> <span class="qa-text">${txt.substring(0, 150)}...</span></div>`;
+                }
+                if (item.Extra) {
+                    const txt = item.Extra.text || item.Extra;
+                    const name = item.Extra.name || 'INFO';
+                    html += `<div style="margin-top:5px;"><span class="qa-label label-e">${name}</span> <span class="qa-text">${txt.substring(0, 150)}...</span></div>`;
+                }
+
+                row.innerHTML = html;
+                list.appendChild(row);
+            });
+        }
+
+        async function fetchVoices() {
+            const source = document.getElementById('voice-source-toggle').value;
+            try {
+                const res = await fetch('/voices');
+                const data = await res.json();
+                availableVoices = data;
+
+                populateDropdowns(source);
+            } catch (e) {
+                console.error("Failed to fetch voices", e);
+            }
+        }
+
+        function populateDropdowns(source) {
+            const voices = availableVoices[source] || [];
+            const selects = ['voice-q', 'voice-a', 'voice-extra'];
+
+            selects.forEach(id => {
+                const el = document.getElementById(id);
+                const current = el.value;
+                el.innerHTML = '<option disabled selected>Select Voice...</option>';
+                voices.forEach(v => {
+                    const opt = document.createElement('option');
+                    opt.value = v;
+                    opt.innerText = v;
+                    el.appendChild(opt);
+                });
+                // Try to keep selection if valid
+                if (voices.includes(current)) el.value = current;
+                else if (voices.length > 0) el.selectedIndex = 1; // Auto select first if available?
+            });
+        }
+
+        document.getElementById('voice-source-toggle').addEventListener('change', (e) => {
+            populateDropdowns(e.target.value);
+        });
+
+        async function generateTTS() {
+            showLoader();
+            const limit = document.getElementById('qa-limit').value;
+            const payload = {
+                filename: uploadedFilename,
+                count: limit,
+                voice_q: document.getElementById('voice-q').value,
+                voice_a: document.getElementById('voice-a').value,
+                voice_extra: document.getElementById('voice-extra').value
+            };
+
+            try {
+                const res = await fetch('/generate', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+
+                if (!res.ok) throw new Error("Generation Failed");
+
+                const blob = await res.blob();
+                const url = URL.createObjectURL(blob);
+
+                const audio = document.getElementById('audio-player');
+                audio.src = url;
+                document.getElementById('download-link').href = url;
+
+                document.getElementById('section-result').classList.remove('hidden');
+                audio.play();
+
+                // Scroll to bottom
+                document.getElementById('section-result').scrollIntoView({ behavior: 'smooth' });
+
+            } catch (e) {
+                alert("TTS Error: " + e.message);
+            } finally {
+                hideLoader();
+            }
+        }
+    </script>
+
+    <footer style="margin-top: auto; padding: 20px; color: #888; font-size: 0.8rem;">
+        &copy; 2025 RedacTTS. All rights reserved.
+    </footer>
+
+</body>
+
+</html>
