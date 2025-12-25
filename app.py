@@ -65,8 +65,10 @@ VOICES = {
         "p229 (Male)", "p230 (Male)", "p231 (Male)", "p232 (Male)", "p233 (Male)"
     ],
     "Cloud": [
-        "Joanna (US Female)", "Matthew (US Male)", "Ivy (US Child)", "Justin (US Child)",
-        "Kendra (US Female)", "Joey (US Male)", "Salli (US Female)", "Kimberly (US Female)",
+        "Danielle (US Female)", "Joanna (US Female)", "Ruth (US Female)", 
+        "Salli (US Female)", "Kimberly (US Female)", "Kendra (US Female)", "Ivy (US Female)",
+        "Gregory (US Male)", "Kevin (US Male)", "Matthew (US Male)", 
+        "Justin (US Male)", "Joey (US Male)", "Stephen (US Male)",
         "Amy (UK Female)", "Emma (UK Female)", "Brian (UK Male)", "Arthur (UK Male)",
         "Olivia (AU Female)"
     ]
