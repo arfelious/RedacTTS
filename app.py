@@ -181,12 +181,20 @@ def generate_tts():
     
     if count > 0:
         qa_pairs = qa_pairs[:count]
+    
+    # Redaction audio: silence, pink, or white noise
+    redaction_audio = data.get('redaction_audio', 'silence')
+    noise_path = None
+    if redaction_audio == 'pink':
+        noise_path = 'static/pink.mp3'
+    elif redaction_audio == 'white':
+        noise_path = 'static/white.mp3'
 
     try:
         if mode == "Local":
-            generate_tts_unified.generate_coqui(qa_pairs, v_q, v_a, v_e, output_path)
+            generate_tts_unified.generate_coqui(qa_pairs, v_q, v_a, v_e, output_path, noise_path)
         else:
-            generate_tts_unified.generate_polly(qa_pairs, v_q, v_a, v_e, output_path)
+            generate_tts_unified.generate_polly(qa_pairs, v_q, v_a, v_e, output_path, noise_path)
     except Exception as e:
         return jsonify({'error': f'TTS failed: {str(e)}'}), 500
 

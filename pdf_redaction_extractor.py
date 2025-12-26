@@ -104,44 +104,6 @@ class PDFRedactionExtractor:
         self.avg_word_height = int(50 * (dpi / 300))
         # Fuzzy matching threshold (0-1, higher = stricter)
         self.fuzzy_threshold = 0.6
-        # Characters commonly produced as artifacts from redacted areas
-        self.artifact_chars = set('IilL|1!/')
-    
-    def is_redaction_artifact(self, text: str) -> bool:
-        """
-        Check if a word looks like an artifact from a redacted area.
-        
-        These are typically repeated characters like "IIIIII", "llllll", "||||||"
-        that appear when the PDF's text layer picks up garbage from black boxes.
-        
-        Args:
-            text: The word text to check
-            
-        Returns:
-            True if the word appears to be a redaction artifact
-        """
-        if len(text) < 2:
-            return False
-        
-        # Check if word is entirely artifact characters (even short ones like "II", "III")
-        all_artifact = all(c in self.artifact_chars for c in text)
-        if all_artifact and len(text) >= 2:
-            return True
-        
-        # Check if word is mostly the same character repeated
-        unique_chars = set(text)
-        
-        # If 1-2 unique chars and mostly artifact characters, it's likely garbage
-        if len(unique_chars) <= 2:
-            artifact_count = sum(1 for c in text if c in self.artifact_chars)
-            if artifact_count / len(text) >= 0.7:
-                return True
-        
-        # Check for patterns like "IIIII", "lllll", "||||"
-        if len(unique_chars) == 1 and text[0] in self.artifact_chars:
-            return True
-        
-        return False
     
     def extract_embedded_words_with_positions(
         self, 
@@ -169,7 +131,6 @@ class PDFRedactionExtractor:
         words_data = sorted(words_data, key=lambda w: (w[5], w[6], w[7]))
         
         word_boxes = []
-        detected_artifact_regions = []
         
         for w in words_data:
             text = w[4].strip()
@@ -182,30 +143,6 @@ class PDFRedactionExtractor:
             width = int((w[2] - w[0]) * zoom)
             height = int((w[3] - w[1]) * zoom)
             
-            # Check if this looks like a redaction artifact
-            if self.is_redaction_artifact(text):
-                # Check if there's already a detected redaction overlapping this position
-                is_covered = False
-                for red in redactions:
-                    # Check for overlap
-                    if (x < red.x + red.width and x + width > red.x and
-                        y < red.y + red.height and y + height > red.y):
-                        is_covered = True
-                        break
-                
-                if not is_covered:
-                    # This is a potential false negative - artifact without detected redaction
-                    # Create a new redaction region for it
-                    estimated_words = self._estimate_word_count(width, height)
-                    detected_artifact_regions.append(RedactedRegion(
-                        x=x, y=y, width=width, height=height,
-                        page_num=0,  # Will be set by caller
-                        estimated_words=max(1, estimated_words)
-                    ))
-                
-                # Skip adding this artifact to word_boxes
-                continue
-            
             word_boxes.append(WordBox(
                 text=text,
                 x=x,
@@ -215,12 +152,7 @@ class PDFRedactionExtractor:
                 confidence=100.0  # Embedded text is reliable
             ))
         
-        # Merge artifact-detected redactions with existing ones
-        all_redactions = list(redactions) + detected_artifact_regions
-        if detected_artifact_regions:
-            all_redactions = self._merge_redactions(all_redactions)
-        
-        return word_boxes, all_redactions
+        return word_boxes, redactions
     
     def extract_embedded_words(self, page: fitz.Page, zoom: float) -> List[str]:
         """
@@ -312,8 +244,13 @@ class PDFRedactionExtractor:
             estimated_words = self._estimate_word_count(w, h)
             
             if estimated_words >= 1:  # At least 1 word
+                # Shrink bounding box slightly to compensate for morphological expansion
+                shrink = 3
                 redactions.append(RedactedRegion(
-                    x=x, y=y, width=w, height=h,
+                    x=x + shrink, 
+                    y=y + shrink, 
+                    width=max(1, w - 2*shrink), 
+                    height=max(1, h - 2*shrink),
                     page_num=page_num,
                     estimated_words=estimated_words
                 ))
@@ -466,6 +403,9 @@ class PDFRedactionExtractor:
         Returns:
             Extracted text with [REDACTED <word_count>] markers
         """
+        from concurrent.futures import ThreadPoolExecutor
+        import multiprocessing
+        
         print(f"Processing: {pdf_path}")
         
         # Open PDF with PyMuPDF
@@ -476,15 +416,17 @@ class PDFRedactionExtractor:
             print(f"  Error opening PDF: {e}")
             return f"[Error processing PDF: {e}]"
         
-        full_text = []
-        
         # Calculate zoom factor for desired DPI (default PDF is 72 DPI)
         zoom = self.dpi / 72.0
         matrix = fitz.Matrix(zoom, zoom)
         
+        # Phase 1: Pre-process all pages (render, detect redactions, extract embedded text)
+        print("  Phase 1: Pre-processing pages...")
+        page_data = []
+        
         for page_num in range(len(doc)):
             page = doc[page_num]
-            print(f"  Processing page {page_num + 1}/{len(doc)}...")
+            print(f"    Pre-processing page {page_num + 1}/{len(doc)}...")
             
             # Render page to image using PyMuPDF
             pix = page.get_pixmap(matrix=matrix)
@@ -501,18 +443,67 @@ class PDFRedactionExtractor:
             
             # Detect redactions from image (black boxes)
             redactions = self.detect_redactions(cv_image, page_num + 1)
-            print(f"    Found {len(redactions)} redacted regions (from image)")
             
-            # Extract embedded text with positions (higher quality than OCR)
-            # Also filters out redaction artifacts and detects false negatives
+            # Extract embedded text with positions
             embedded_word_boxes, redactions = self.extract_embedded_words_with_positions(
                 page, zoom, redactions
             )
-            print(f"    Extracted {len(embedded_word_boxes)} embedded words from PDF")
-            print(f"    Total redactions after artifact detection: {len(redactions)}")
+            
+            page_data.append({
+                'page_num': page_num,
+                'cv_image': cv_image,
+                'redactions': redactions,
+                'embedded_words': embedded_word_boxes
+            })
+        
+        doc.close()
+        
+        # Phase 2: Run OCR in parallel for pages that need it
+        pages_needing_ocr = [p for p in page_data if p['redactions']]
+        
+        if pages_needing_ocr:
+            num_workers = min(multiprocessing.cpu_count(), len(pages_needing_ocr))
+            print(f"  Phase 2: Running OCR on {len(pages_needing_ocr)} pages using {num_workers} workers...")
+            
+            def ocr_page_wrapper(page_info):
+                return self.ocr_page(page_info['cv_image'])
+            
+            with ThreadPoolExecutor(max_workers=num_workers) as executor:
+                ocr_results = list(executor.map(ocr_page_wrapper, pages_needing_ocr))
+            
+            # Map OCR results back to page data
+            ocr_idx = 0
+            for page_info in page_data:
+                if page_info['redactions']:
+                    page_info['ocr_words'] = ocr_results[ocr_idx]
+                    ocr_idx += 1
+                else:
+                    page_info['ocr_words'] = []
+        else:
+            for page_info in page_data:
+                page_info['ocr_words'] = []
+        
+        # Phase 3: Filter and build text for each page
+        print("  Phase 3: Building output text...")
+        full_text = []
+        
+        for page_info in page_data:
+            page_num = page_info['page_num']
+            embedded_word_boxes = page_info['embedded_words']
+            redactions = page_info['redactions']
+            ocr_words = page_info['ocr_words']
+            
+            print(f"    Page {page_num + 1}: {len(redactions)} redactions, {len(embedded_word_boxes)} embedded words, {len(ocr_words)} OCR words")
+            
+            # Filter out botched redactions
+            if redactions and ocr_words:
+                embedded_word_boxes = self._filter_botched_redactions(
+                    embedded_word_boxes, redactions, ocr_words
+                )
             
             # Debug: save image with marked redactions
             if self.debug:
+                cv_image = page_info['cv_image']
                 debug_image = cv_image.copy()
                 for red in redactions:
                     cv2.rectangle(debug_image, 
@@ -524,14 +515,131 @@ class PDFRedactionExtractor:
                                cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
                 debug_path = f"debug_page_{page_num + 1}.png"
                 cv2.imwrite(debug_path, debug_image)
-                print(f"    Saved debug image: {debug_path}")
             
             # Build page text with redaction markers
             page_text = self._build_text_with_redactions(embedded_word_boxes, redactions)
             full_text.append(f"--- Page {page_num + 1} ---\n{page_text}")
         
-        doc.close()
         return "\n\n".join(full_text)
+    
+    def _filter_botched_redactions(
+        self,
+        embedded_words: List[WordBox],
+        redactions: List[RedactedRegion],
+        ocr_words: List[WordBox]
+    ) -> List[WordBox]:
+        """
+        Filter out words that are in the embedded layer but visually redacted.
+        
+        This catches "botched" redactions where DoJ just highlighted text black
+        but the text is still in the PDF's text layer.
+        
+        Logic: If embedded word overlaps a redaction box AND OCR doesn't see
+        any word at that position, the word should be filtered out.
+        """
+        filtered_words = []
+        
+        # Punctuation should never be filtered by botched detection
+        punctuation = set('.,!?;:\'"()-–—…')
+        
+        # Common stopwords - too likely to be false positives near redactions
+        stopwords = {
+            "me", "my", "myself", "we", "our", "ours", "ourselves", "you", "your", 
+            "yours", "yourself", "yourselves", "he", "him", "his", "himself", "she", 
+            "her", "hers", "herself", "it", "its", "itself", "they", "them", "their", 
+            "theirs", "themselves", "what", "which", "who", "whom", "this", "that", 
+            "these", "those", "am", "is", "are", "was", "were", "be", "been", "being", 
+            "have", "has", "had", "having", "do", "does", "did", "doing", "a", "an", 
+            "the", "and", "but", "if", "or", "because", "as", "until", "while", "of", 
+            "at", "by", "for", "with", "about", "against", "between", "into", "through", 
+            "during", "before", "after", "above", "below", "to", "from", "up", "down", 
+            "in", "out", "on", "off", "over", "under", "again", "further", "then", 
+            "once", "here", "there", "when", "where", "why", "how", "all", "any", 
+            "both", "each", "few", "more", "most", "other", "some", "such", "no", 
+            "nor", "not", "only", "own", "same", "so", "than", "too", "very", "s", 
+            "t", "can", "will", "just", "don", "should", "now",
+            # Single letters and transcript markers - critical for Q&A structure
+            "i", "q", "a",
+            # Common contractions (without punctuation)
+            "it's", "i'm", "i'll", "i'd", "i've", "he's", "she's", "we're", "they're",
+            "you're", "that's", "there's", "what's", "who's", "can't", "won't", 
+            "don't", "doesn't", "didn't", "isn't", "aren't", "wasn't", "weren't"
+        }
+        
+        for word in embedded_words:
+            word_lower = word.text.lower()
+            # Also check without trailing punctuation (for "It's." -> "it's")
+            word_stripped = word_lower.rstrip('.,!?;:\'"')
+            
+            # Skip punctuation - always keep it
+            if len(word.text) <= 2 and all(c in punctuation for c in word.text):
+                filtered_words.append(word)
+                continue
+            
+            # Skip stopwords - always keep them (check both with and without trailing punct)
+            if word_lower in stopwords or word_stripped in stopwords:
+                filtered_words.append(word)
+                continue
+            
+            # Check if word overlaps any redaction (no tolerance - strict overlap)
+            overlaps_redaction = False
+            for red in redactions:
+                # Check for actual overlap (word must intersect redaction box)
+                if (word.x < red.x + red.width and 
+                    word.x + word.width > red.x and
+                    word.y < red.y + red.height and 
+                    word.y + word.height > red.y):
+                    overlaps_redaction = True
+                    break
+            
+            if not overlaps_redaction:
+                # Not in redaction zone, keep the word
+                filtered_words.append(word)
+                continue
+            
+            # Word overlaps a redaction - check if OCR sees it
+            ocr_confirms = False
+            
+            for ocr_word in ocr_words:
+                # For single-char words, use bounding box intersection
+                if len(word.text) == 1:
+                    # Calculate intersection area
+                    inter_x1 = max(word.x, ocr_word.x)
+                    inter_y1 = max(word.y, ocr_word.y)
+                    inter_x2 = min(word.x + word.width, ocr_word.x + ocr_word.width)
+                    inter_y2 = min(word.y + word.height, ocr_word.y + ocr_word.height)
+                    
+                    if inter_x2 > inter_x1 and inter_y2 > inter_y1:
+                        inter_area = (inter_x2 - inter_x1) * (inter_y2 - inter_y1)
+                        word_area = word.width * word.height
+                        
+                        # OCR confirms if intersection is >50% of embedded word area
+                        if word_area > 0 and inter_area / word_area > 0.5:
+                            ocr_confirms = True
+                            break
+                else:
+                    # For multi-char words, use position + fuzzy text match
+                    y_distance = abs(word.y - ocr_word.y)
+                    x_distance = abs(word.x - ocr_word.x)
+                    
+                    # Use tighter tolerance based on actual word dimensions
+                    y_tolerance = word.height * 0.5
+                    x_tolerance = word.width * 0.5
+                    
+                    if y_distance < y_tolerance and x_distance < x_tolerance:
+                        if self.fuzzy_match_ratio(word.text, ocr_word.text) > self.fuzzy_threshold:
+                            ocr_confirms = True
+                            break
+            
+            if ocr_confirms:
+                # OCR can see the word, so it's not visually redacted
+                filtered_words.append(word)
+            else:
+                # Word is in embedded layer but OCR can't see it
+                # This is a botched redaction - filter it out
+                print(f"    [BOTCHED REDACTION] Filtered: '{word.text}' at ({word.x}, {word.y})")
+        
+        return filtered_words
     
     def _build_text_with_redactions(
         self, 
@@ -540,7 +648,7 @@ class PDFRedactionExtractor:
     ) -> str:
         """
         Build text output, inserting redaction markers at appropriate positions.
-        realigning text based on Y-coordinates.
+        Filters out footer text (below the last numbered line).
         """
         if not word_boxes and not redactions:
             return "[Empty page]"
@@ -559,15 +667,90 @@ class PDFRedactionExtractor:
             })
         
         for red in redactions:
+            # Use center for redaction positioning (both X and Y)
+            # This places redactions more accurately relative to surrounding text
+            center_y = red.y + (red.height // 2)
+            center_x = red.x + (red.width // 2)
             elements.append({
                 'type': 'redaction',
                 'text': f"[REDACTED {red.estimated_words}]",
-                'y': red.y,
-                'x': red.x,
+                'y': center_y,
+                'x': center_x,
                 'height': red.height,
                 'width': red.width
             })
             
+        if not elements:
+            return ""
+        
+        # Find Y boundaries based on line numbers (1-25)
+        # Track min Y (first line number) and max Y (last line number)
+        min_numbered_y = float('inf')
+        max_numbered_y = 0
+        line_height_estimate = self.avg_word_height
+        
+        # First, collect all potential line number candidates with their Y positions
+        line_number_candidates = []
+        for elem in elements:
+            text = elem['text']
+            # Strip punctuation for line number check (handles cases like ".4" or "25.")
+            text_stripped = text.strip('.,;:!?\'"()-')
+            # Check if this looks like a line number (1-2 digits, value 1-25)
+            if text_stripped and len(text_stripped) <= 2 and text_stripped.isdigit():
+                num = int(text_stripped)
+                if 1 <= num <= 25:
+                    line_number_candidates.append({
+                        'num': num,
+                        'y': elem['y'],
+                        'y_bottom': elem['y'] + elem['height'],
+                        'height': elem['height']
+                    })
+        
+        # Sort by Y to find sequence
+        line_number_candidates.sort(key=lambda c: c['y'])
+        
+        # Filter out leading isolated numbers (likely page numbers in header)
+        # A page number is isolated if there's a large Y gap before the next number
+        filtered_candidates = line_number_candidates.copy()
+        
+        if len(filtered_candidates) >= 2:
+            first = filtered_candidates[0]
+            second = filtered_candidates[1]
+            
+            # Calculate Y gap between first and second candidate
+            y_gap = second['y'] - first['y_bottom']
+            avg_height = first['height']
+            
+            # If first number is isolated (gap > 3x line height), it's likely a page number
+            if y_gap > avg_height * 3:
+                print(f"    [HEADER] Skipping isolated page number: {first['num']} at y={first['y']} (gap={y_gap:.0f})")
+                filtered_candidates = filtered_candidates[1:]
+        
+        # Now calculate boundaries from filtered candidates
+        for cand in filtered_candidates:
+            if cand['y'] < min_numbered_y:
+                min_numbered_y = cand['y']
+                line_height_estimate = cand['height']
+            if cand['y_bottom'] > max_numbered_y:
+                max_numbered_y = cand['y_bottom']
+        
+        # Filter out header (above first line number) and footer (below last)
+        if min_numbered_y < float('inf') and max_numbered_y > 0:
+            y_header_cutoff = min_numbered_y - (line_height_estimate * 0.5)
+            y_footer_cutoff = max_numbered_y + (line_height_estimate * 1.5)
+            
+            filtered_elements = []
+            for elem in elements:
+                if elem['y'] < y_header_cutoff:
+                    print(f"    [HEADER] Filtered: '{elem['text']}' at y={elem['y']} (cutoff={y_header_cutoff:.0f})")
+                elif elem['y'] > y_footer_cutoff:
+                    print(f"    [FOOTER] Filtered: '{elem['text']}' at y={elem['y']} (cutoff={y_footer_cutoff:.0f})")
+                else:
+                    filtered_elements.append(elem)
+            elements = filtered_elements
+        else:
+            print(f"    [WARNING] No line numbers (1-25) found on page, skipping header/footer filter")
+        
         if not elements:
             return ""
 
@@ -614,16 +797,146 @@ class PDFRedactionExtractor:
             if current_line:
                 current_line.sort(key=lambda e: e['x'])
                 lines.append(current_line)
+        
+        # Post-process: merge redaction-only lines into adjacent text lines
+        # if the redaction X positions fit into gaps between words
+        def has_line_number(line):
+            """Check if line has a line number marker (digit 1-25 at start)."""
+            for elem in line:
+                if elem['type'] == 'word' and elem['text'].isdigit():
+                    num = int(elem['text'])
+                    if 1 <= num <= 25:
+                        return True
+            return False
+        
+        def has_words(line):
+            """Check if line has any non-redaction words."""
+            return any(e['type'] == 'word' for e in line)
+        
+        def can_merge_redactions_into_line(redactions, target_line):
+            """Check if redactions can fit into X-gaps of target line."""
+            if not target_line:
+                return False
+            # Get X ranges of target line elements
+            target_x_ranges = [(e['x'], e['x'] + e['width']) for e in target_line]
+            # Check if each redaction fits in a gap
+            for red in redactions:
+                red_x1, red_x2 = red['x'], red['x'] + red['width']
+                # Check if redaction overlaps with any existing element
+                overlaps = any(not (red_x2 < t[0] or red_x1 > t[1]) for t in target_x_ranges)
+                if overlaps:
+                    return False
+            return True
+        
+        merged_lines = []
+        i = 0
+        while i < len(lines):
+            line = lines[i]
+            
+            # If this is a redaction-only line (no words)
+            redactions_only = all(e['type'] == 'redaction' for e in line)
+            
+            if redactions_only and merged_lines:
+                # Try to merge into previous line if it has words
+                prev_line = merged_lines[-1]
+                if has_words(prev_line) and not has_line_number(line):
+                    # Merge: add redactions to previous line and re-sort by X
+                    prev_line.extend(line)
+                    prev_line.sort(key=lambda e: e['x'])
+                    i += 1
+                    continue
+            
+            merged_lines.append(line)
+            i += 1
+        
+        lines = merged_lines
 
         # Build output text
         output_lines = []
         for line in lines:
-            # Check for large gaps (whitespace) to preserve columns? 
-            # For now, just space join
-            line_text = ' '.join(elem['text'] for elem in line)
-            output_lines.append(line_text)
+            # Filter out obvious artifact words (II, III, IIII, etc.) that are OCR garbage
+            filtered_elements = []
+            for elem in line:
+                text = elem['text']
+                # Check if this is an artifact pattern (repeated I, l, |, 1 characters)
+                artifact_chars = set('IilL|1!')
+                if len(text) >= 2 and all(c in artifact_chars for c in text):
+                    print(f"    [ARTIFACT] Filtered: '{text}'")
+                    continue
+                filtered_elements.append(elem)
+            
+            if filtered_elements:
+                line_text = ' '.join(elem['text'] for elem in filtered_elements)
+                output_lines.append(line_text)
         
-        return '\n'.join(output_lines)
+        # Post-process: fix split line numbers (e.g., "1 1" -> "11")
+        fixed_lines = self._fix_split_line_numbers(output_lines)
+        
+        return '\n'.join(fixed_lines)
+    
+    def _fix_split_line_numbers(self, lines: List[str]) -> List[str]:
+        """
+        Fix OCR errors where line numbers are split (e.g., '1 1' should be '11').
+        Uses sequence tracking to validate corrections.
+        """
+        import re
+        
+        fixed_lines = []
+        last_line_num = 0
+        
+        # Pattern: leading punctuation, digit(s), space, rest (e.g., ".4 A text")
+        leading_punct_pattern = re.compile(r'^[.,;:]+(\d+)\s+(.*)$')
+        # Pattern: start of line, digit, space(s), digit, space, rest
+        split_num_pattern = re.compile(r'^(\d)\s+(\d)\s+(.*)$')
+        # Pattern: normal line number at start
+        line_num_pattern = re.compile(r'^(\d+)\s+(.*)$')
+        
+        for line in lines:
+            stripped = line.strip()
+            if not stripped:
+                fixed_lines.append(line)
+                continue
+            
+            # Check for leading punctuation before line number (e.g., ".4 A text")
+            punct_match = leading_punct_pattern.match(stripped)
+            if punct_match:
+                num_str, rest = punct_match.groups()
+                num = int(num_str)
+                if 1 <= num <= 25:
+                    # Fix by removing leading punctuation
+                    fixed_lines.append(f"{num} {rest}")
+                    last_line_num = num
+                    continue
+            
+            # Check for split line number
+            split_match = split_num_pattern.match(stripped)
+            if split_match:
+                d1, d2, rest = split_match.groups()
+                merged_num = int(d1 + d2)
+                
+                # Validate: should be close to last_line_num + 1
+                # Allow some flexibility (could skip lines, new page resets)
+                if last_line_num > 0 and abs(merged_num - (last_line_num + 1)) <= 3:
+                    fixed_lines.append(f"{merged_num} {rest}")
+                    last_line_num = merged_num
+                    continue
+                elif last_line_num == 0 and merged_num >= 1 and merged_num <= 25:
+                    # First line, reasonable starting number
+                    fixed_lines.append(f"{merged_num} {rest}")
+                    last_line_num = merged_num
+                    continue
+            
+            # Check for normal line number - update tracking
+            num_match = line_num_pattern.match(stripped)
+            if num_match:
+                num = int(num_match.group(1))
+                # Page resets to 1-25, or continues sequence
+                if num >= 1 and (num <= 25 or abs(num - last_line_num) <= 5):
+                    last_line_num = num
+            
+            fixed_lines.append(line)
+        
+        return fixed_lines
     
     def process_path(self, path: str, output_dir: Optional[str] = None) -> None:
         """

@@ -391,7 +391,7 @@
             <div id="preview-area" class="hidden" style="margin-top: 30px;">
                 <div class="stats-bar">
                     <span><strong>Extracted Items:</strong> <span id="qa-count">0</span></span>
-                    <span style="font-size: 0.8rem; color: #666;">Previewing first 5 items</span>
+                    <span style="font-size: 0.8rem; color: #666;">Previewing first 10 items</span>
                 </div>
                 <div class="preview-box" id="qa-list"></div>
             </div>
@@ -405,8 +405,8 @@
                 <div class="config-item" style="flex: 1; margin-right: 20px;">
                     <label>Voice Source</label>
                     <select id="voice-source-toggle">
-                        <option value="Local">Local (System)</option>
                         <option value="Cloud" selected>Cloud (Neural)</option>
+                        <option value="Local">Local (System)</option>
                     </select>
                 </div>
                 <button class="btn btn-outline" onclick="fetchVoices()" style="height: 42px; margin-top: 24px;">Refresh
@@ -440,6 +440,15 @@
                     <input type="number" id="qa-limit" value="30" min="1" style="width: 100px;">
                     <span style="font-size: 0.9rem; color: #666;">Process first N Q/A pairs only</span>
                 </div>
+            </div>
+
+            <div class="config-item" style="margin-top: 20px;">
+                <label>Redaction Audio</label>
+                <select id="redaction-audio">
+                    <option value="silence" selected>Silence</option>
+                    <option value="pink">Pink Noise</option>
+                    <option value="white">White Noise</option>
+                </select>
             </div>
 
             <button class="btn btn-full" onclick="generateTTS()">Generate Audio</button>
@@ -478,7 +487,7 @@
             document.getElementById('file-name').innerText = "Selected: " + file.name;
             document.getElementById('file-name').style.display = 'block';
             document.getElementById('btn-upload-confirm').classList.remove('hidden');
- // Reset UI for new file
+            // Reset UI for new file
             document.getElementById('preview-area').classList.add('hidden');
             document.getElementById('section-config').classList.add('hidden');
             document.getElementById('section-result').classList.add('hidden');
@@ -566,7 +575,7 @@
         function renderPreview(data) {
             const list = document.getElementById('qa-list');
             list.innerHTML = '';
-            data.slice(0, 5).forEach(item => {
+            data.slice(0, 10).forEach(item => {
                 const row = document.createElement('div');
                 row.className = 'qa-row';
 
@@ -636,7 +645,8 @@
                 count: limit,
                 voice_q: document.getElementById('voice-q').value,
                 voice_a: document.getElementById('voice-a').value,
-                voice_extra: document.getElementById('voice-extra').value
+                voice_extra: document.getElementById('voice-extra').value,
+                redaction_audio: document.getElementById('redaction-audio').value
             };
 
             try {
