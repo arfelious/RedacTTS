@@ -469,6 +469,7 @@
     <script>
         let extractedQA = [];
         let uploadedFilename = "";
+        let uploadedQaJsonKey = "";
         let availableVoices = {};
 
         let selectedFile = null; // Store file for re-upload if needed
@@ -514,6 +515,7 @@
 
                 extractedQA = data.qa_pairs;
                 uploadedFilename = data.filename;
+                uploadedQaJsonKey = data.qa_json_key;
                 document.getElementById('qa-count').innerText = extractedQA.length;
                 renderPreview(extractedQA);
 
@@ -642,6 +644,7 @@
             const limit = document.getElementById('qa-limit').value;
             const payload = {
                 filename: uploadedFilename,
+                qa_json_key: uploadedQaJsonKey,
                 count: limit,
                 voice_q: document.getElementById('voice-q').value,
                 voice_a: document.getElementById('voice-a').value,

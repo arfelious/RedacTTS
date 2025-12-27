@@ -118,6 +118,8 @@ def upload_file():
         body = json.loads(result['body'])
         json_path = body['qa_json_key']
         qa_data = json.loads(storage.read_text(json_path))
+        # Return the actual json_path for the generate endpoint
+        return jsonify({'qa_pairs': qa_data, 'filename': file.filename, 'qa_json_key': json_path})
     else:
         extracted_text_path = os.path.join(app.config['UPLOAD_FOLDER'], 
                                            file.filename.replace('.pdf', '_extracted.txt'))
@@ -133,7 +135,7 @@ def upload_file():
             with open(json_path, 'r', encoding='utf-8') as f:
                 qa_data = json.load(f)
         
-    return jsonify({'qa_pairs': qa_data, 'filename': file.filename})
+    return jsonify({'qa_pairs': qa_data, 'filename': file.filename, 'qa_json_key': json_path})
 
 
 @app.route('/voices', methods=['GET'])
@@ -147,9 +149,12 @@ def generate_tts():
     filename = data.get('filename')
     if not filename:
         return jsonify({'error': 'Filename missing'}), 400
-        
-    json_path = os.path.join(app.config['UPLOAD_FOLDER'], 
-                             filename.replace('.pdf', '_extracted_qa.json'))
+    
+    # Use qa_json_key if provided (preferred), otherwise construct from filename
+    json_path = data.get('qa_json_key')
+    if not json_path:
+        json_path = os.path.join(app.config['UPLOAD_FOLDER'], 
+                                 filename.replace('.pdf', '_extracted_qa.json'))
     
     print(f"Looking for QA JSON at: {json_path}")
     
