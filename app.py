@@ -151,12 +151,17 @@ def generate_tts():
     json_path = os.path.join(app.config['UPLOAD_FOLDER'], 
                              filename.replace('.pdf', '_extracted_qa.json'))
     
+    print(f"Looking for QA JSON at: {json_path}")
+    
     if storage:
-        if not storage.file_exists(json_path):
+        exists = storage.file_exists(json_path)
+        print(f"S3 file exists: {exists}")
+        if not exists:
             return jsonify({'error': 'Source data not found'}), 404
         qa_pairs = json.loads(storage.read_text(json_path))
     else:
         if not os.path.exists(json_path):
+            print(f"Local file does not exist: {json_path}")
             return jsonify({'error': 'Source data not found'}), 404
         with open(json_path, 'r', encoding='utf-8') as f:
             qa_pairs = json.load(f)
