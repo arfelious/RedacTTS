@@ -458,18 +458,24 @@ class PDFRedactionExtractor:
         
         doc.close()
         
-        # Phase 2: Run OCR in parallel for pages that need it
+        # Phase 2: Run OCR for pages that need it
         pages_needing_ocr = [p for p in page_data if p['redactions']]
         
         if pages_needing_ocr:
-            num_workers = min(multiprocessing.cpu_count(), len(pages_needing_ocr))
+            # Limit parallelism to avoid memory issues (Lambda has limited resources)
+            # Use max 2 workers to keep memory in check
+            num_workers = min(2, len(pages_needing_ocr))
             print(f"  Phase 2: Running OCR on {len(pages_needing_ocr)} pages using {num_workers} workers...")
             
             def ocr_page_wrapper(page_info):
                 return self.ocr_page(page_info['cv_image'])
             
-            with ThreadPoolExecutor(max_workers=num_workers) as executor:
-                ocr_results = list(executor.map(ocr_page_wrapper, pages_needing_ocr))
+            # Process sequentially if only 1 worker, otherwise use threads
+            if num_workers == 1:
+                ocr_results = [ocr_page_wrapper(p) for p in pages_needing_ocr]
+            else:
+                with ThreadPoolExecutor(max_workers=num_workers) as executor:
+                    ocr_results = list(executor.map(ocr_page_wrapper, pages_needing_ocr))
             
             # Map OCR results back to page data
             ocr_idx = 0

@@ -7,7 +7,7 @@
 
 ### Build & Deploy
 ```bash
-# Build image (platform and provenance flags required for Lambda)
+# Build image
 docker build --platform linux/amd64 --provenance=false -t redactts-ocr .
 
 # Create ECR repo
