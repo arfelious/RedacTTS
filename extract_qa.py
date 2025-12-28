@@ -16,55 +16,6 @@ except ImportError:
     storage = None
 
 
-def fix_split_line_numbers(lines):
-    """
-    Fix OCR errors where line numbers are split (e.g., '1 1' should be '11').
-    Uses sequence tracking to validate corrections.
-    """
-    fixed_lines = []
-    last_line_num = 0
-    
-    # Pattern: start of line, digit, space(s), digit, space, rest
-    split_num_pattern = re.compile(r'^(\d)\s+(\d)\s+(.*)$')
-    # Pattern: normal line number at start
-    line_num_pattern = re.compile(r'^(\d+)\s+(.*)$')
-    
-    for line in lines:
-        stripped = line.strip()
-        if not stripped:
-            fixed_lines.append(line)
-            continue
-            
-        # Check for split line number
-        split_match = split_num_pattern.match(stripped)
-        if split_match:
-            d1, d2, rest = split_match.groups()
-            merged_num = int(d1 + d2)
-            
-            # Validate: should be close to last_line_num + 1
-            # Allow some flexibility (could skip lines, new page resets)
-            if last_line_num > 0 and abs(merged_num - (last_line_num + 1)) <= 3:
-                # Likely a valid merge
-                fixed_lines.append(f"{merged_num} {rest}")
-                last_line_num = merged_num
-                continue
-            elif last_line_num == 0 and merged_num >= 1 and merged_num <= 25:
-                # First line, reasonable starting number
-                fixed_lines.append(f"{merged_num} {rest}")
-                last_line_num = merged_num
-                continue
-        
-        # Check for normal line number
-        num_match = line_num_pattern.match(stripped)
-        if num_match:
-            num = int(num_match.group(1))
-            # Page resets to 1-25, or continues sequence
-            if num >= 1 and (num <= 25 or abs(num - last_line_num) <= 5):
-                last_line_num = num
-        
-        fixed_lines.append(line)
-    
-    return fixed_lines
 
 
 def extract_qa(file_path):
@@ -98,9 +49,6 @@ def extract_qa(file_path):
     full_text = "\n".join(valid_pages)
     lines = full_text.splitlines()
     
-    # Fix split line numbers before processing
-    lines = fix_split_line_numbers(lines)
-
     # Patterns
     # Q/A pattern: optional line number (possibly with leading punct like ".4") or redaction, then Q or A, then text
     qa_start_pattern = re.compile(r'^[\s.,;:]*(?:(?:\[REDACTED[^\]]*\]|\d+)\s+)?([AQ])\s+(.*)', re.MULTILINE)
