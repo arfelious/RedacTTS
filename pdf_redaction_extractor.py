@@ -462,8 +462,6 @@ class PDFRedactionExtractor:
         pages_needing_ocr = [p for p in page_data if p['redactions']]
         
         if pages_needing_ocr:
-            # Limit parallelism to avoid memory issues (Lambda has limited resources)
-            # Use max 2 workers to keep memory in check
             num_workers = min(2, len(pages_needing_ocr))
             print(f"  Phase 2: Running OCR on {len(pages_needing_ocr)} pages using {num_workers} workers...")
             

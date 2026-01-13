@@ -33,6 +33,9 @@ python app.py -p 8080  # or default 5000
 
 # Open http://localhost:<port>
 ```
+## Interface
+![RedacTTS Interface](./static/interface.png)
+
 ## Lambda Deployment
 See [LAMBDA_DEPLOY.md](LAMBDA_DEPLOY.md) for container deployment instructions.
 
